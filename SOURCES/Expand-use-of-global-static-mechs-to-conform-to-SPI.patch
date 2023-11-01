@@ -1,0 +1,218 @@
+From 2ca80c193ffa13c89b9b63fb9cb690a9789d5842 Mon Sep 17 00:00:00 2001
+From: Simo Sorce <simo@redhat.com>
+Date: Thu, 27 Aug 2020 11:34:45 -0400
+Subject: [PATCH] Expand use of global static mechs to conform to SPI
+
+GSSAPI requires some specific APIs to return "static" OIDs that the user
+does not have to free.  The krb5 mechglue in fact requires mechanisms to
+also honor this or the mech oid will be irretrievably leaked in some
+cases.
+
+To accomodate this, expand use of global mechs structure we already
+allocate for the gss_inidicate_mechs case so we can return "static" OIDs
+from calls like ISC and ASC.
+
+Signed-off-by: Simo Sorce <simo@redhat.com>
+[rharwood@redhat.com: commit message fixups]
+Reviewed-by: Robbie Harwood <rharwood@redhat.com>
+(cherry picked from commit a3f13b30ef3c90ff7344c3913f6e26e55b82451f)
+(cherry picked from commit b7ccb627f4663ca949e3483486478add8f61cb27)
+---
+ src/client/gpm_accept_sec_context.c | 22 ++++++-------------
+ src/client/gpm_common.c             |  1 -
+ src/client/gpm_indicate_mechs.c     | 34 +++++++++++++++++++++++++++++
+ src/client/gpm_init_sec_context.c   | 19 +++++-----------
+ src/client/gssapi_gpm.h             |  3 +++
+ src/mechglue/gss_plugin.c           |  5 +++++
+ 6 files changed, 55 insertions(+), 29 deletions(-)
+
+diff --git a/src/client/gpm_accept_sec_context.c b/src/client/gpm_accept_sec_context.c
+index ef5e79c..ab20b03 100644
+--- a/src/client/gpm_accept_sec_context.c
++++ b/src/client/gpm_accept_sec_context.c
+@@ -21,7 +21,6 @@ OM_uint32 gpm_accept_sec_context(OM_uint32 *minor_status,
+     gssx_res_accept_sec_context *res = &ures.accept_sec_context;
+     gssx_ctx *ctx = NULL;
+     gssx_name *name = NULL;
+-    gss_OID_desc *mech = NULL;
+     gss_buffer_t outbuf = NULL;
+     uint32_t ret_maj;
+     int ret;
+@@ -70,15 +69,6 @@ OM_uint32 gpm_accept_sec_context(OM_uint32 *minor_status,
+         goto done;
+     }
+ 
+-    if (mech_type) {
+-        if (res->status.mech.octet_string_len) {
+-            ret = gp_conv_gssx_to_oid_alloc(&res->status.mech, &mech);
+-            if (ret) {
+-                goto done;
+-            }
+-        }
+-    }
+-
+     ctx = res->context_handle;
+     /* we are stealing the delegated creds on success, so we do not want
+      * it to be freed by xdr_free */
+@@ -101,8 +91,14 @@ OM_uint32 gpm_accept_sec_context(OM_uint32 *minor_status,
+     }
+ 
+     if (mech_type) {
+-        *mech_type = mech;
++        gss_OID_desc mech;
++        gp_conv_gssx_to_oid(&res->status.mech, &mech);
++        ret = gpm_mech_to_static(&mech, mech_type);
++        if (ret) {
++            goto done;
++        }
+     }
++
+     if (src_name) {
+         *src_name = name;
+     }
+@@ -145,10 +141,6 @@ done:
+             xdr_free((xdrproc_t)xdr_gssx_name, (char *)name);
+             free(name);
+         }
+-        if (mech) {
+-            free(mech->elements);
+-            free(mech);
+-        }
+         if (outbuf) {
+             free(outbuf->value);
+             free(outbuf);
+diff --git a/src/client/gpm_common.c b/src/client/gpm_common.c
+index d932ba2..02325c4 100644
+--- a/src/client/gpm_common.c
++++ b/src/client/gpm_common.c
+@@ -795,4 +795,3 @@ void gpm_free_xdrs(int proc, union gp_rpc_arg *arg, union gp_rpc_res *res)
+     xdr_free(gpm_xdr_set[proc].arg_fn, (char *)arg);
+     xdr_free(gpm_xdr_set[proc].res_fn, (char *)res);
+ }
+-
+diff --git a/src/client/gpm_indicate_mechs.c b/src/client/gpm_indicate_mechs.c
+index b019a96..86c7de3 100644
+--- a/src/client/gpm_indicate_mechs.c
++++ b/src/client/gpm_indicate_mechs.c
+@@ -300,6 +300,40 @@ static int gpmint_init_global_mechs(void)
+     return 0;
+ }
+ 
++/* GSSAPI requires some APIs to return "static" mechs that callers do not need
++ * to free. So match a radom mech and return from our global "static" array */
++int gpm_mech_to_static(gss_OID mech_type, gss_OID *mech_static)
++{
++    int ret;
++
++    ret = gpmint_init_global_mechs();
++    if (ret) {
++        return ret;
++    }
++
++    *mech_static = GSS_C_NO_OID;
++    for (size_t i = 0; i < global_mechs.mech_set->count; i++) {
++        if (gpm_equal_oids(&global_mechs.mech_set->elements[i], mech_type)) {
++            *mech_static = &global_mechs.mech_set->elements[i];
++            return 0;
++        }
++    }
++    /* TODO: potentially in future add the mech to the list if missing */
++    return ENOENT;
++}
++
++bool gpm_mech_is_static(gss_OID mech_type)
++{
++    if (global_mechs.mech_set) {
++        for (size_t i = 0; i < global_mechs.mech_set->count; i++) {
++            if (&global_mechs.mech_set->elements[i] == mech_type) {
++                return true;
++            }
++        }
++    }
++    return false;
++}
++
+ OM_uint32 gpm_indicate_mechs(OM_uint32 *minor_status, gss_OID_set *mech_set)
+ {
+     uint32_t ret_min;
+diff --git a/src/client/gpm_init_sec_context.c b/src/client/gpm_init_sec_context.c
+index bea2010..b84ff94 100644
+--- a/src/client/gpm_init_sec_context.c
++++ b/src/client/gpm_init_sec_context.c
+@@ -43,7 +43,6 @@ OM_uint32 gpm_init_sec_context(OM_uint32 *minor_status,
+     gssx_arg_init_sec_context *arg = &uarg.init_sec_context;
+     gssx_res_init_sec_context *res = &ures.init_sec_context;
+     gssx_ctx *ctx = NULL;
+-    gss_OID_desc *mech = NULL;
+     gss_buffer_t outbuf = NULL;
+     uint32_t ret_maj = GSS_S_COMPLETE;
+     uint32_t ret_min = 0;
+@@ -100,11 +99,12 @@ OM_uint32 gpm_init_sec_context(OM_uint32 *minor_status,
+ 
+     /* return values */
+     if (actual_mech_type) {
+-        if (res->status.mech.octet_string_len) {
+-            ret = gp_conv_gssx_to_oid_alloc(&res->status.mech, &mech);
+-            if (ret) {
+-                goto done;
+-            }
++        gss_OID_desc mech;
++        gp_conv_gssx_to_oid(&res->status.mech, &mech);
++        ret = gpm_mech_to_static(&mech, actual_mech_type);
++        if (ret) {
++            gpm_save_internal_status(ret, gp_strerror(ret));
++            goto done;
+         }
+     }
+ 
+@@ -151,9 +151,6 @@ done:
+     gpm_free_xdrs(GSSX_INIT_SEC_CONTEXT, &uarg, &ures);
+ 
+     if (ret_maj == GSS_S_COMPLETE || ret_maj == GSS_S_CONTINUE_NEEDED) {
+-        if (actual_mech_type) {
+-            *actual_mech_type = mech;
+-        }
+         if (outbuf) {
+             *output_token = *outbuf;
+             free(outbuf);
+@@ -170,10 +167,6 @@ done:
+             free(ctx);
+             ctx = NULL;
+         }
+-        if (mech) {
+-            free(mech->elements);
+-            free(mech);
+-        }
+         if (outbuf) {
+             free(outbuf->value);
+             free(outbuf);
+diff --git a/src/client/gssapi_gpm.h b/src/client/gssapi_gpm.h
+index 61124e0..b7ba04b 100644
+--- a/src/client/gssapi_gpm.h
++++ b/src/client/gssapi_gpm.h
+@@ -27,6 +27,9 @@ void gpm_display_status_init_once(void);
+ void gpm_save_status(gssx_status *status);
+ void gpm_save_internal_status(uint32_t err, char *err_str);
+ 
++int gpm_mech_to_static(gss_OID mech_type, gss_OID *mech_static);
++bool gpm_mech_is_static(gss_OID mech_type);
++
+ OM_uint32 gpm_display_status(OM_uint32 *minor_status,
+                              OM_uint32 status_value,
+                              int status_type,
+diff --git a/src/mechglue/gss_plugin.c b/src/mechglue/gss_plugin.c
+index 8b799cf..bf70d87 100644
+--- a/src/mechglue/gss_plugin.c
++++ b/src/mechglue/gss_plugin.c
+@@ -377,6 +377,11 @@ OM_uint32 gssi_internal_release_oid(OM_uint32 *minor_status, gss_OID *oid)
+         item = gpp_next_special_oids(item);
+     }
+ 
++    if (gpm_mech_is_static(*oid)) {
++        *oid = GSS_C_NO_OID;
++        return GSS_S_COMPLETE;
++    }
++
+     /* none matched, it's not ours */
+     return GSS_S_CONTINUE_NEEDED;
+ }

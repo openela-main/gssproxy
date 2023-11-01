@@ -1,0 +1,57 @@
+From 167d9775dd88cc91f74393fa487f126d21c560c7 Mon Sep 17 00:00:00 2001
+From: Simo Sorce <simo@redhat.com>
+Date: Thu, 27 Aug 2020 17:20:44 -0400
+Subject: [PATCH] Avoid unnecessary allocation in gpm_inquire_mechs_for_name()
+
+Signed-off-by: Simo Sorce <simo@redhat.com>
+[rharwood@redhat.com: clarified commit message]
+Reviewed-by: Robbie Harwood <rharwood@redhat.com>
+(cherry picked from commit c0561c078bc22b9523ac25f515ad85b735c26a92)
+(cherry picked from commit ebd66fbf42887220a0ff38cfea03a7b20fa4da17)
+---
+ src/client/gpm_indicate_mechs.c | 12 +++---------
+ 1 file changed, 3 insertions(+), 9 deletions(-)
+
+diff --git a/src/client/gpm_indicate_mechs.c b/src/client/gpm_indicate_mechs.c
+index 4041dcd..73fadf0 100644
+--- a/src/client/gpm_indicate_mechs.c
++++ b/src/client/gpm_indicate_mechs.c
+@@ -390,7 +390,7 @@ OM_uint32 gpm_inquire_mechs_for_name(OM_uint32 *minor_status,
+     uint32_t ret_min;
+     uint32_t ret_maj;
+     uint32_t discard;
+-    gss_OID name_type = GSS_C_NO_OID;
++    gss_OID_desc name_type;
+     int present;
+ 
+     if (!minor_status) {
+@@ -407,19 +407,14 @@ OM_uint32 gpm_inquire_mechs_for_name(OM_uint32 *minor_status,
+         return GSS_S_FAILURE;
+     }
+ 
+-    ret_min = gp_conv_gssx_to_oid_alloc(&input_name->name_type, &name_type);
+-    if (ret_min) {
+-        ret_maj = GSS_S_FAILURE;
+-        goto done;
+-    }
+-
+     ret_maj = gss_create_empty_oid_set(&ret_min, mech_types);
+     if (ret_maj) {
+         goto done;
+     }
+ 
++    gp_conv_gssx_to_oid(&input_name->name_type, &name_type);
+     for (unsigned i = 0; i < global_mechs.info_len; i++) {
+-        ret_maj = gss_test_oid_set_member(&ret_min, name_type,
++        ret_maj = gss_test_oid_set_member(&ret_min, &name_type,
+                                           global_mechs.info[i].name_types,
+                                           &present);
+         if (ret_maj) {
+@@ -437,7 +432,6 @@ OM_uint32 gpm_inquire_mechs_for_name(OM_uint32 *minor_status,
+     }
+ 
+ done:
+-    gss_release_oid(&discard, &name_type);
+     if (ret_maj) {
+         gss_release_oid_set(&discard, mech_types);
+         *minor_status = ret_min;

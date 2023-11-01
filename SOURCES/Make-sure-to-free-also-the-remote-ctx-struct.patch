@@ -1,0 +1,28 @@
+From a02741d82ff44b3c93747615f560dae1bbe7c57b Mon Sep 17 00:00:00 2001
+From: Simo Sorce <simo@redhat.com>
+Date: Thu, 27 Aug 2020 12:44:45 -0400
+Subject: [PATCH] Make sure to free also the remote ctx struct
+
+The xdr_free() call only frees the contents and not the containing
+structure itself.
+
+Signed-off-by: Simo Sorce <simo@redhat.com>
+Reviewed-by: Robbie Harwood <rharwood@redhat.com>
+(cherry picked from commit e6811347c23b6c62d9f1869da089ab9900f97a84)
+(cherry picked from commit 8d5457c290d513781b54be54ede9c81cc5d1fff8)
+---
+ src/client/gpm_release_handle.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/src/client/gpm_release_handle.c b/src/client/gpm_release_handle.c
+index 8f49ee9..2f70781 100644
+--- a/src/client/gpm_release_handle.c
++++ b/src/client/gpm_release_handle.c
+@@ -106,5 +106,7 @@ rel_done:
+     gpm_free_xdrs(GSSX_RELEASE_HANDLE, &uarg, &ures);
+ done:
+     xdr_free((xdrproc_t)xdr_gssx_ctx, (char *)r);
++    free(r);
++    *context_handle = NULL;
+     return ret;
+ }
