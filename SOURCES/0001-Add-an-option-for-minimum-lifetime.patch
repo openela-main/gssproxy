@@ -1,0 +1,139 @@
+From 7945bd756c5e41ec223c058b2c698809f04f3c77 Mon Sep 17 00:00:00 2001
+From: Scott Mayhew <smayhew@redhat.com>
+Date: Thu, 2 Sep 2021 12:44:27 -0400
+Subject: [PATCH] Add an option for minimum lifetime
+
+It's possible for gssproxy to return a cached credential with a very
+small remaining lifetime.  This can be problematic for NFS clients since
+it requires a round trip to the NFS server to establish a GSS context.
+Add a min_lifetime option that represents the lowest value that the
+lifetime of the cached credential can be.  Any lower than that, and
+gp_check_cred() returns GSS_S_CREDENTIALS_EXPIRED, so that
+gp_add_krb5_creds() is forced to try to obtain a new credential.
+
+Signed-off-by: Scott Mayhew <smayhew@redhat.com>
+---
+ examples/99-nfs-client.conf.in |  1 +
+ man/gssproxy.conf.5.xml        | 15 +++++++++++++++
+ src/gp_config.c                | 12 ++++++++++++
+ src/gp_creds.c                 | 12 ++++++++++--
+ src/gp_proxy.h                 |  1 +
+ 5 files changed, 39 insertions(+), 2 deletions(-)
+
+diff --git a/examples/99-nfs-client.conf.in b/examples/99-nfs-client.conf.in
+index c0985d9..9dd1891 100644
+--- a/examples/99-nfs-client.conf.in
++++ b/examples/99-nfs-client.conf.in
+@@ -7,3 +7,4 @@
+   allow_any_uid = yes
+   trusted = yes
+   euid = 0
++  min_lifetime = 60
+diff --git a/man/gssproxy.conf.5.xml b/man/gssproxy.conf.5.xml
+index 67dce68..f02b1d3 100644
+--- a/man/gssproxy.conf.5.xml
++++ b/man/gssproxy.conf.5.xml
+@@ -331,6 +331,21 @@
+                     </listitem>
+                 </varlistentry>
+ 
++                <varlistentry>
++                    <term>min_lifetime (integer)</term>
++                    <listitem>
++                        <para>Minimum lifetime of a cached credential, in seconds.</para>
++                        <para>If non-zero, when gssproxy is deciding whether to use
++                            a cached credential, it will compare the lifetime of the
++                            cached credential to this value.  If the lifetime of the
++                            cached credential is lower, gssproxy will treat the cached
++                            credential as expired and will attempt to obtain a new
++                            credential.
++                        </para>
++                        <para>Default: min_lifetime = 15</para>
++                    </listitem>
++                </varlistentry>
++
+                 <varlistentry>
+                     <term>program (string)</term>
+                     <listitem>
+diff --git a/src/gp_config.c b/src/gp_config.c
+index 88d5f29..6a6aa90 100644
+--- a/src/gp_config.c
++++ b/src/gp_config.c
+@@ -32,6 +32,7 @@ struct gp_flag_def flag_names[] = {
+ 
+ #define DEFAULT_FILTERED_FLAGS GSS_C_DELEG_FLAG
+ #define DEFAULT_ENFORCED_FLAGS 0
++#define DEFAULT_MIN_LIFETIME 15
+ 
+ static void free_str_array(const char ***a, int *count)
+ {
+@@ -538,6 +539,17 @@ static int load_services(struct gp_config *cfg, struct gp_ini_context *ctx)
+                     goto done;
+                 }
+             }
++
++            cfg->svcs[n]->min_lifetime = DEFAULT_MIN_LIFETIME;
++            ret = gp_config_get_int(ctx, secname, "min_lifetime", &valnum);
++            if (ret == 0) {
++                if (valnum >= 0) {
++                    cfg->svcs[n]->min_lifetime = valnum;
++                } else {
++                    GPDEBUG("Invalid value '%d' for min_lifetime in [%s], ignoring.\n",
++                            valnum, secname);
++                }
++            }
+         }
+         safefree(secname);
+     }
+diff --git a/src/gp_creds.c b/src/gp_creds.c
+index 92a6f13..843d1a3 100644
+--- a/src/gp_creds.c
++++ b/src/gp_creds.c
+@@ -492,6 +492,7 @@ done:
+ }
+ 
+ static uint32_t gp_check_cred(uint32_t *min,
++                              struct gp_service *svc,
+                               gss_cred_id_t in_cred,
+                               gssx_name *desired_name,
+                               gss_cred_usage_t cred_usage)
+@@ -563,7 +564,14 @@ static uint32_t gp_check_cred(uint32_t *min,
+     if (lifetime == 0) {
+         ret_maj = GSS_S_CREDENTIALS_EXPIRED;
+     } else {
+-        ret_maj = GSS_S_COMPLETE;
++        if (svc->min_lifetime && lifetime < svc->min_lifetime) {
++            GPDEBUG("%s: lifetime (%u) less than min_lifetime (%u) "
++                    "for service \"%s\" - returning\n",
++                    __func__, lifetime, svc->min_lifetime, svc->name);
++            ret_maj = GSS_S_CREDENTIALS_EXPIRED;
++        } else {
++            ret_maj = GSS_S_COMPLETE;
++        }
+     }
+ 
+ done:
+@@ -622,7 +630,7 @@ uint32_t gp_add_krb5_creds(uint32_t *min,
+          * function completely */
+ 
+         /* just check if it is a valid krb5 cred */
+-        ret_maj = gp_check_cred(&ret_min, in_cred, desired_name, cred_usage);
++        ret_maj = gp_check_cred(&ret_min, gpcall->service, in_cred, desired_name, cred_usage);
+         if (ret_maj == GSS_S_COMPLETE) {
+             return GSS_S_COMPLETE;
+         } else if (ret_maj == GSS_S_CREDENTIALS_EXPIRED ||
+diff --git a/src/gp_proxy.h b/src/gp_proxy.h
+index 3f58a43..f56d640 100644
+--- a/src/gp_proxy.h
++++ b/src/gp_proxy.h
+@@ -45,6 +45,7 @@ struct gp_service {
+     gss_cred_usage_t cred_usage;
+     uint32_t filter_flags;
+     uint32_t enforce_flags;
++    uint32_t min_lifetime;
+     char *program;
+ 
+     uint32_t mechs;
+-- 
+2.39.2
+
