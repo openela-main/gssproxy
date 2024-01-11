@@ -1,0 +1,34 @@
+From 06cee2eb9ba3096cf5f1e532dae56132fd69c948 Mon Sep 17 00:00:00 2001
+From: Robbie Harwood <rharwood@redhat.com>
+Date: Thu, 9 Apr 2020 12:00:04 -0400
+Subject: [PATCH] Correctly size loop counter in gpp_special_available_mechs()
+
+Fixes compiler warning for clang in CI.
+
+Signed-off-by: Robbie Harwood <rharwood@redhat.com>
+(cherry picked from commit f9c0abb935125683972c9289db38dfe840f41b37)
+---
+ src/mechglue/gss_plugin.c | 3 +--
+ 1 file changed, 1 insertion(+), 2 deletions(-)
+
+diff --git a/src/mechglue/gss_plugin.c b/src/mechglue/gss_plugin.c
+index bf70d87..b9813dc 100644
+--- a/src/mechglue/gss_plugin.c
++++ b/src/mechglue/gss_plugin.c
+@@ -306,7 +306,6 @@ gss_OID_set gpp_special_available_mechs(const gss_OID_set mechs)
+     struct gpp_special_oid_list *item;
+     gss_OID n;
+     uint32_t maj, min;
+-    int i;
+ 
+     item = gpp_get_special_oids();
+ 
+@@ -314,7 +313,7 @@ gss_OID_set gpp_special_available_mechs(const gss_OID_set mechs)
+     if (maj) {
+         return GSS_C_NO_OID_SET;
+     }
+-    for (i = 0; i < mechs->count; i++) {
++    for (size_t i = 0; i < mechs->count; i++) {
+         while (item) {
+             if (gpp_is_special_oid(&mechs->elements[i])) {
+                 maj = gss_add_oid_set_member(&min,

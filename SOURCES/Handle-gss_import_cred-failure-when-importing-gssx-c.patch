@@ -1,0 +1,31 @@
+From 0379411547792a58b3d36c9928354072b5f6cabf Mon Sep 17 00:00:00 2001
+From: Robbie Harwood <rharwood@redhat.com>
+Date: Mon, 15 Apr 2019 19:56:50 -0400
+Subject: [PATCH] Handle gss_import_cred() failure when importing gssx creds
+
+Otherwise, we might attempt to set options on a non-existent handle,
+leading to a segfault.
+
+Signed-off-by: Robbie Harwood <rharwood@redhat.com>
+Reviewed-by: Simo Sorce <simo@redhat.com>
+Merges: #244
+(cherry picked from commit 84cf88f6c6cfeb8e3fd2c26ed0fe9fe5bf3810d2)
+---
+ src/gp_export.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/src/gp_export.c b/src/gp_export.c
+index 403e339..7ad8037 100644
+--- a/src/gp_export.c
++++ b/src/gp_export.c
+@@ -476,6 +476,10 @@ uint32_t gp_import_gssx_cred(uint32_t *min, struct gp_call_ctx *gpcall,
+     }
+ 
+     ret_maj = gss_import_cred(&ret_min, &token, out);
++    if (ret_maj) {
++        GPDEBUG("gss_import_cred failed when importing gssx cred\n");
++        goto done;
++    }
+ 
+     /* check if there is any client option we need to set on credentials */
+     gp_set_cred_options(cred, *out);

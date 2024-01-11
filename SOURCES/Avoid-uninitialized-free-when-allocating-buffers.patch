@@ -1,0 +1,39 @@
+From 160f7a7c66e7e3d249de853cd5a1ebe0becd9fe1 Mon Sep 17 00:00:00 2001
+From: Robbie Harwood <rharwood@redhat.com>
+Date: Wed, 1 May 2019 11:27:13 -0400
+Subject: [PATCH] Avoid uninitialized free when allocating buffers
+
+Signed-off-by: Robbie Harwood <rharwood@redhat.com>
+Reviewed-by: Simo Sorce <simo@redhat.com>
+Resolves: #248
+(cherry picked from commit eafa3c9272c95646400123f8e4d6fb50cf36d36c)
+---
+ src/gp_export.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/src/gp_export.c b/src/gp_export.c
+index dbfddeb..a5681c0 100644
+--- a/src/gp_export.c
++++ b/src/gp_export.c
+@@ -300,6 +300,7 @@ static int gp_encrypt_buffer(krb5_context context, krb5_keyblock *key,
+                          &data_in,
+                          &enc_handle);
+     if (ret) {
++        free(enc_handle.ciphertext.data);
+         ret = EINVAL;
+         goto done;
+     }
+@@ -308,12 +309,12 @@ static int gp_encrypt_buffer(krb5_context context, krb5_keyblock *key,
+                                enc_handle.ciphertext.data,
+                                out);
+     if (ret) {
++        free(enc_handle.ciphertext.data);
+         goto done;
+     }
+ 
+ done:
+     free(padded);
+-    free(enc_handle.ciphertext.data);
+     return ret;
+ }
+ 

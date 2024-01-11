@@ -1,0 +1,31 @@
+From 448501f1b3e0204353544ab245dd4ec77d46faae Mon Sep 17 00:00:00 2001
+From: Simo Sorce <simo@redhat.com>
+Date: Thu, 27 Aug 2020 17:21:03 -0400
+Subject: [PATCH] Use static OIDs in gss_inquire_context()
+
+As per other functions gssapi expect a static OID here.
+
+Signed-off-by: Simo Sorce <simo@redhat.com>
+[rharwood@redhat.com: commit message fixup]
+Reviewed-by: Robbie Harwood <rharwood@redhat.com>
+(cherry picked from commit 502e448b3b126bf828ed871496dd7520d5075564)
+(cherry picked from commit 9cc525b1f1184241483705dfc0a4162bc0c55632)
+---
+ src/client/gpm_inquire_context.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/src/client/gpm_inquire_context.c b/src/client/gpm_inquire_context.c
+index 8c683fe..5800a8d 100644
+--- a/src/client/gpm_inquire_context.c
++++ b/src/client/gpm_inquire_context.c
+@@ -51,7 +51,9 @@ OM_uint32 gpm_inquire_context(OM_uint32 *minor_status,
+     }
+ 
+     if (mech_type) {
+-        ret = gp_conv_gssx_to_oid_alloc(&context_handle->mech, mech_type);
++        gss_OID_desc mech;
++        gp_conv_gssx_to_oid(&context_handle->mech, &mech);
++        ret = gpm_mech_to_static(&mech, mech_type);
+         if (ret) {
+             if (src_name) {
+                 (void)gpm_release_name(&tmp_min, src_name);

@@ -1,0 +1,40 @@
+From a23fd33ce8bdf4cdc4d2d00153d3bbf89f363475 Mon Sep 17 00:00:00 2001
+From: Simo Sorce <simo@redhat.com>
+Date: Thu, 27 Aug 2020 13:20:49 -0400
+Subject: [PATCH] Use the correct function to free unused creds
+
+Signed-off-by: Simo Sorce <simo@redhat.com>
+Reviewed-by: Robbie Harwood <rharwood@redhat.com>
+(cherry picked from commit a2ffd1230fd572d7fa9099af2365dfb7ac394d07)
+(cherry picked from commit f77b75b7928a2c7813aebc8a1ec107d495627685)
+---
+ src/mechglue/gpp_creds.c            | 2 +-
+ src/mechglue/gpp_init_sec_context.c | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/mechglue/gpp_creds.c b/src/mechglue/gpp_creds.c
+index e87da82..338fadd 100644
+--- a/src/mechglue/gpp_creds.c
++++ b/src/mechglue/gpp_creds.c
+@@ -895,7 +895,7 @@ done:
+     if (maj == GSS_S_COMPLETE) {
+         *cred_handle = (gss_cred_id_t)cred;
+     } else {
+-        free(cred);
++        (void)gpp_cred_handle_free(&min, cred);
+     }
+     (void)gss_release_buffer(&min, &wrap_token);
+     return maj;
+diff --git a/src/mechglue/gpp_init_sec_context.c b/src/mechglue/gpp_init_sec_context.c
+index 94d9b01..bb878df 100644
+--- a/src/mechglue/gpp_init_sec_context.c
++++ b/src/mechglue/gpp_init_sec_context.c
+@@ -215,7 +215,7 @@ done:
+     *context_handle = (gss_ctx_id_t)ctx_handle;
+ 
+     if (claimant_cred_handle == GSS_C_NO_CREDENTIAL) {
+-        free(cred_handle);
++        (void)gpp_cred_handle_free(&min, cred_handle);
+     }
+     return maj;
+ }

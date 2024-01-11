@@ -1,0 +1,34 @@
+From 87a1335a9618788f5d82de08ed0587feebe92c74 Mon Sep 17 00:00:00 2001
+From: Robbie Harwood <rharwood@redhat.com>
+Date: Fri, 31 Jul 2020 13:23:30 -0400
+Subject: [PATCH] Avoid leak of special mechs in gss_mech_interposer()
+
+Signed-off-by: Robbie Harwood <rharwood@redhat.com>
+(cherry picked from commit dc405df92173cceac2cafc09a70b1724bb2b97c8)
+(cherry picked from commit 4b9e5f00d36d9b5c1f80835a989fa8865c045ff3)
+---
+ src/mechglue/gss_plugin.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/src/mechglue/gss_plugin.c b/src/mechglue/gss_plugin.c
+index d735537..8b799cf 100644
+--- a/src/mechglue/gss_plugin.c
++++ b/src/mechglue/gss_plugin.c
+@@ -76,6 +76,7 @@ gss_OID_set gss_mech_interposer(gss_OID mech_type)
+     gss_OID_set interposed_mechs;
+     OM_uint32 maj, min;
+     char *envval;
++    gss_OID_set special_mechs;
+ 
+     /* avoid looping in the gssproxy daemon by avoiding to interpose
+      * any mechanism */
+@@ -118,7 +119,8 @@ gss_OID_set gss_mech_interposer(gss_OID mech_type)
+     }
+ 
+     /* while there also initiaize special_mechs */
+-    (void)gpp_special_available_mechs(interposed_mechs);
++    special_mechs = gpp_special_available_mechs(interposed_mechs);
++    (void)gss_release_oid_set(&min, &special_mechs);
+ 
+ done:
+     if (maj != 0) {

@@ -1,0 +1,158 @@
+From 07b32184ee337ec06a405724b4b88cad22829c6d Mon Sep 17 00:00:00 2001
+From: Robbie Harwood <rharwood@redhat.com>
+Date: Mon, 30 Sep 2019 15:00:56 -0400
+Subject: [PATCH] Make syslog of call status configurable
+
+Add a parameter (syslog_status) to configuration and
+CLI (--syslog-status).  This logs the results of GSSAPI calls at
+LOG_DEBUG.  Typically these calls resemble:
+
+    gssproxy[28914]: (OID: { 1 2 840 113554 1 2 2 }) Unspecified GSS
+    failure.  Minor code may provide more information, No credentials
+    cache found
+
+Since these messages worry some admins, turn them off by default.
+
+Signed-off-by: Robbie Harwood <rharwood@redhat.com>
+(cherry picked from commit 116618e1523038691fcb481107ba15ffd42942ac)
+(cherry picked from commit cc61409b7b20974332549dd028d889b87dbff98d)
+---
+ man/gssproxy.8.xml      |  8 ++++++++
+ man/gssproxy.conf.5.xml | 10 ++++++++++
+ src/gp_config.c         |  6 ++++++
+ src/gp_log.c            |  9 +++++++--
+ src/gp_log.h            |  3 +++
+ src/gssproxy.c          |  6 ++++++
+ 6 files changed, 40 insertions(+), 2 deletions(-)
+
+diff --git a/man/gssproxy.8.xml b/man/gssproxy.8.xml
+index 21f7e6a..4019135 100644
+--- a/man/gssproxy.8.xml
++++ b/man/gssproxy.8.xml
+@@ -151,6 +151,14 @@
+                 </listitem>
+             </varlistentry>
+ 
++            <varlistentry>
++                <term>
++                    <option>--syslog-status</option>
++                </term>
++                <listitem>
++                    <para>Enable additional logging to syslog.</para>
++                </listitem>
++            </varlistentry>
+             <varlistentry>
+                 <term>
+                     <option>--version</option>
+diff --git a/man/gssproxy.conf.5.xml b/man/gssproxy.conf.5.xml
+index 21c9653..53cae3d 100644
+--- a/man/gssproxy.conf.5.xml
++++ b/man/gssproxy.conf.5.xml
+@@ -365,6 +365,16 @@
+                     </listitem>
+                 </varlistentry>
+ 
++                <varlistentry>
++                    <term>syslog_status (boolean)</term>
++                    <listitem>
++                        <para>Enable per-call debugging output to the syslog.
++                        This may be useful for investigating problems in
++                        applications using gssproxy.</para>
++                        <para>Default: syslog_status = false</para>
++                    </listitem>
++                </varlistentry>
++
+                 <varlistentry>
+                     <term>trusted (boolean)</term>
+                         <listitem><para>Defines whether this service is considered trusted. Use with caution, this enables impersonation.</para>
+diff --git a/src/gp_config.c b/src/gp_config.c
+index 78474ed..88d5f29 100644
+--- a/src/gp_config.c
++++ b/src/gp_config.c
+@@ -611,6 +611,12 @@ int load_config(struct gp_config *cfg)
+         goto done;
+     }
+ 
++    ret = gp_config_get_string(ctx, "gssproxy", "syslog_status", &tmpstr);
++    if (ret == 0)
++        gp_syslog_status = gp_boolean_is_true(tmpstr);
++    else if (ret != ENOENT)
++        goto done;
++
+     ret = gp_config_get_string(ctx, "gssproxy", "run_as_user", &tmpstr);
+     if (ret == 0) {
+         cfg->proxy_user = strdup(tmpstr);
+diff --git a/src/gp_log.c b/src/gp_log.c
+index b6eb161..e67e8d3 100644
+--- a/src/gp_log.c
++++ b/src/gp_log.c
+@@ -5,6 +5,9 @@
+ #include <stdio.h>
+ #include <stdarg.h>
+ 
++/* global logging switch */
++bool gp_syslog_status = false;
++
+ void gp_logging_init(void)
+ {
+     openlog("gssproxy",
+@@ -55,7 +58,9 @@ void gp_log_status(gss_OID mech, uint32_t maj, uint32_t min)
+ {
+     char buf[MAX_LOG_LINE];
+ 
+-    gp_fmt_status(mech, maj, min, buf, MAX_LOG_LINE);
++    if (!gp_syslog_status)
++        return;
+ 
+-    GPERROR("%s\n", buf);
++    gp_fmt_status(mech, maj, min, buf, MAX_LOG_LINE);
++    syslog(LOG_DEBUG, "%s\n", buf);
+ }
+diff --git a/src/gp_log.h b/src/gp_log.h
+index fc8cbdb..31ad648 100644
+--- a/src/gp_log.h
++++ b/src/gp_log.h
+@@ -3,9 +3,12 @@
+ #ifndef _GP_LOG_H_
+ #define _GP_LOG_H_
+ 
++#include <stdbool.h>
+ #include <syslog.h>
+ #include <gssapi/gssapi.h>
+ 
++extern bool gp_syslog_status;
++
+ #define MAX_LOG_LINE 1024
+ #define GPERROR(...) syslog(LOG_ERR, __VA_ARGS__);
+ #define GPAUDIT(...) syslog(LOG_INFO, __VA_ARGS__);
+diff --git a/src/gssproxy.c b/src/gssproxy.c
+index db6e89b..6b72a9b 100644
+--- a/src/gssproxy.c
++++ b/src/gssproxy.c
+@@ -157,6 +157,7 @@ int main(int argc, const char *argv[])
+     int opt_version = 0;
+     int opt_debug = 0;
+     int opt_debug_level = 0;
++    int opt_syslog_status = 0;
+     verto_ctx *vctx;
+     verto_ev *ev;
+     int wait_fd;
+@@ -182,6 +183,8 @@ int main(int argc, const char *argv[])
+          _("Enable debugging"), NULL}, \
+         {"debug-level", '\0', POPT_ARG_INT, &opt_debug_level, 0, \
+          _("Set debugging level"), NULL}, \
++        {"syslog-status", '\0', POPT_ARG_NONE, &opt_syslog_status, 0, \
++         _("Enable GSSAPI status logging to syslog"), NULL}, \
+         {"version", '\0', POPT_ARG_NONE, &opt_version, 0, \
+          _("Print version number and exit"), NULL }, \
+         POPT_TABLEEND
+@@ -211,6 +214,9 @@ int main(int argc, const char *argv[])
+         gp_debug_toggle(opt_debug_level);
+     }
+ 
++    if (opt_syslog_status)
++        gp_syslog_status = true;
++
+     if (opt_daemon && opt_interactive) {
+         fprintf(stderr, "Option -i|--interactive is not allowed together with -D|--daemon\n");
+         poptPrintUsage(pc, stderr, 0);

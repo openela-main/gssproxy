@@ -1,0 +1,157 @@
+From 0987e0e137854285d4022f5a910e7923d4e663fd Mon Sep 17 00:00:00 2001
+From: Simo Sorce <simo@redhat.com>
+Date: Thu, 27 Aug 2020 17:01:39 -0400
+Subject: [PATCH] Return static oids for naming functions
+
+gss_display_name and gss_inquire_name reteurn "static" oids, that are
+generally not freed by callers, so make sure to match and return actual
+static OIDs exported by GSSAPI.
+
+Also remove gpm_equal_oids() and use the library provided gss_oid_equal
+function instead.
+
+Signed-off-by: Simo Sorce <simo@redhat.com>
+Reviewed-by: Robbie Harwood <rharwood@redhat.com>
+(cherry picked from commit 6ea8391257e687dfb3981b634c06cf7a55008eb0)
+(cherry picked from commit 41cb9683627d6c3b136a4b48e1b1842619132f16)
+---
+ src/client/gpm_import_and_canon_name.c | 28 ++++++++++++++++++++++++--
+ src/client/gpm_indicate_mechs.c        | 24 +++++-----------------
+ src/client/gssapi_gpm.h                |  1 +
+ 3 files changed, 32 insertions(+), 21 deletions(-)
+
+diff --git a/src/client/gpm_import_and_canon_name.c b/src/client/gpm_import_and_canon_name.c
+index 70149a3..88b8d7c 100644
+--- a/src/client/gpm_import_and_canon_name.c
++++ b/src/client/gpm_import_and_canon_name.c
+@@ -2,6 +2,26 @@
+ 
+ #include "gssapi_gpm.h"
+ 
++static int gpm_name_oid_to_static(gss_OID name_type, gss_OID *name_static)
++{
++#define ret_static(b) \
++    if (gss_oid_equal(name_type, b)) { \
++        *name_static = b; \
++        return 0; \
++    }
++    ret_static(GSS_C_NT_USER_NAME);
++    ret_static(GSS_C_NT_MACHINE_UID_NAME);
++    ret_static(GSS_C_NT_STRING_UID_NAME);
++    ret_static(GSS_C_NT_HOSTBASED_SERVICE_X);
++    ret_static(GSS_C_NT_HOSTBASED_SERVICE);
++    ret_static(GSS_C_NT_ANONYMOUS);
++    ret_static(GSS_C_NT_EXPORT_NAME);
++    ret_static(GSS_C_NT_COMPOSITE_EXPORT);
++    ret_static(GSS_KRB5_NT_PRINCIPAL_NAME);
++    ret_static(gss_nt_krb5_name);
++    return ENOENT;
++}
++
+ OM_uint32 gpm_display_name(OM_uint32 *minor_status,
+                            gssx_name *in_name,
+                            gss_buffer_t output_name_buffer,
+@@ -57,7 +77,9 @@ OM_uint32 gpm_display_name(OM_uint32 *minor_status,
+     }
+ 
+     if (output_name_type) {
+-        ret = gp_conv_gssx_to_oid_alloc(&in_name->name_type, output_name_type);
++        gss_OID_desc oid;
++        gp_conv_gssx_to_oid(&in_name->name_type, &oid);
++        ret = gpm_name_oid_to_static(&oid, output_name_type);
+         if (ret) {
+             gss_release_buffer(&discard, output_name_buffer);
+             ret_min = ret;
+@@ -285,7 +307,9 @@ OM_uint32 gpm_inquire_name(OM_uint32 *minor_status,
+     }
+ 
+     if (MN_mech != NULL) {
+-        ret = gp_conv_gssx_to_oid_alloc(&name->name_type, MN_mech);
++        gss_OID_desc oid;
++        gp_conv_gssx_to_oid(&name->name_type, &oid);
++        ret = gpm_name_oid_to_static(&oid, MN_mech);
+         if (ret) {
+             *minor_status = ret;
+             return GSS_S_FAILURE;
+diff --git a/src/client/gpm_indicate_mechs.c b/src/client/gpm_indicate_mechs.c
+index 86c7de3..4041dcd 100644
+--- a/src/client/gpm_indicate_mechs.c
++++ b/src/client/gpm_indicate_mechs.c
+@@ -95,20 +95,6 @@ static uint32_t gpm_copy_gss_buffer(uint32_t *minor_status,
+     return GSS_S_COMPLETE;
+ }
+ 
+-static bool gpm_equal_oids(gss_const_OID a, gss_const_OID b)
+-{
+-    int ret;
+-
+-    if (a->length == b->length) {
+-        ret = memcmp(a->elements, b->elements, a->length);
+-        if (ret == 0) {
+-            return true;
+-        }
+-    }
+-
+-    return false;
+-}
+-
+ static void gpmint_indicate_mechs(void)
+ {
+     union gp_rpc_arg uarg;
+@@ -313,7 +299,7 @@ int gpm_mech_to_static(gss_OID mech_type, gss_OID *mech_static)
+ 
+     *mech_static = GSS_C_NO_OID;
+     for (size_t i = 0; i < global_mechs.mech_set->count; i++) {
+-        if (gpm_equal_oids(&global_mechs.mech_set->elements[i], mech_type)) {
++        if (gss_oid_equal(&global_mechs.mech_set->elements[i], mech_type)) {
+             *mech_static = &global_mechs.mech_set->elements[i];
+             return 0;
+         }
+@@ -383,7 +369,7 @@ OM_uint32 gpm_inquire_names_for_mech(OM_uint32 *minor_status,
+     }
+ 
+     for (unsigned i = 0; i < global_mechs.info_len; i++) {
+-        if (!gpm_equal_oids(global_mechs.info[i].mech, mech_type)) {
++        if (!gss_oid_equal(global_mechs.info[i].mech, mech_type)) {
+             continue;
+         }
+         ret_maj = gpm_copy_gss_OID_set(&ret_min,
+@@ -481,7 +467,7 @@ OM_uint32 gpm_inquire_attrs_for_mech(OM_uint32 *minor_status,
+     }
+ 
+     for (unsigned i = 0; i < global_mechs.info_len; i++) {
+-        if (!gpm_equal_oids(global_mechs.info[i].mech, mech)) {
++        if (!gss_oid_equal(global_mechs.info[i].mech, mech)) {
+             continue;
+         }
+ 
+@@ -540,7 +526,7 @@ OM_uint32 gpm_inquire_saslname_for_mech(OM_uint32 *minor_status,
+     }
+ 
+     for (unsigned i = 0; i < global_mechs.info_len; i++) {
+-        if (!gpm_equal_oids(global_mechs.info[i].mech, desired_mech)) {
++        if (!gss_oid_equal(global_mechs.info[i].mech, desired_mech)) {
+             continue;
+         }
+         ret_maj = gpm_copy_gss_buffer(&ret_min,
+@@ -598,7 +584,7 @@ OM_uint32 gpm_display_mech_attr(OM_uint32 *minor_status,
+     }
+ 
+     for (unsigned i = 0; i < global_mechs.desc_len; i++) {
+-        if (!gpm_equal_oids(global_mechs.desc[i].attr, mech_attr)) {
++        if (!gss_oid_equal(global_mechs.desc[i].attr, mech_attr)) {
+             continue;
+         }
+         ret_maj = gpm_copy_gss_buffer(&ret_min,
+diff --git a/src/client/gssapi_gpm.h b/src/client/gssapi_gpm.h
+index b7ba04b..bdf12e1 100644
+--- a/src/client/gssapi_gpm.h
++++ b/src/client/gssapi_gpm.h
+@@ -10,6 +10,7 @@
+ #include <string.h>
+ #include <gssapi/gssapi.h>
+ #include <gssapi/gssapi_ext.h>
++#include <gssapi/gssapi_krb5.h>
+ #include "rpcgen/gp_rpc.h"
+ #include "rpcgen/gss_proxy.h"
+ #include "src/gp_common.h"

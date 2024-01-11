@@ -1,0 +1,41 @@
+From 255188b5e3cfc3be5aebd037389bcf7da686a622 Mon Sep 17 00:00:00 2001
+From: Simo Sorce <simo@redhat.com>
+Date: Tue, 7 Apr 2020 08:56:53 -0400
+Subject: [PATCH] Fix handling of selinux context when NULL
+
+Fixes: #256
+Signed-off-by: Simo Sorce <simo@redhat.com>
+Merges: #257
+Reviewed-by: Robbie Harwood <rharwood@redhat.com>
+---
+ src/gp_socket.c | 7 +++++--
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
+diff --git a/src/gp_socket.c b/src/gp_socket.c
+index 7a19ee5..9070928 100644
+--- a/src/gp_socket.c
++++ b/src/gp_socket.c
+@@ -122,7 +122,9 @@ void gp_conn_free(struct gp_conn *conn)
+         close(conn->us.sd);
+     }
+     free(conn->program);
+-    SELINUX_context_free(conn->selinux_ctx);
++    if (conn->selinux_ctx) {
++        SELINUX_context_free(conn->selinux_ctx);
++    }
+     free(conn);
+ }
+ 
+@@ -635,7 +637,8 @@ void accept_sock_conn(verto_ctx *vctx, verto_ev *ev)
+                 conn->creds.ucred.uid,
+                 conn->creds.ucred.gid);
+     }
+-    if (conn->creds.type & CRED_TYPE_SELINUX) {
++    if ((conn->creds.type & CRED_TYPE_SELINUX) &&
++        (conn->selinux_ctx != NULL)) {
+         GPDEBUG(" (context = %s)",
+                 SELINUX_context_str(conn->selinux_ctx));
+     }
+-- 
+2.35.3
+

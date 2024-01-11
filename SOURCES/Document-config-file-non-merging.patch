@@ -1,0 +1,30 @@
+From ceeb1ff9226d21ff166d6737bab34b91fa6660fa Mon Sep 17 00:00:00 2001
+From: Robbie Harwood <rharwood@redhat.com>
+Date: Wed, 10 Jun 2020 15:50:36 -0400
+Subject: [PATCH] Document config file non-merging
+
+Merges: #4
+Signed-off-by: Robbie Harwood <rharwood@redhat.com>
+Reviewed-by: Simo Sorce <simo@redhat.com>
+(cherry picked from commit a05b876badd52ba99d95c981f5f8b0e50de28c63)
+(cherry picked from commit 2592d32c5c6d39f30dc0bfdb78b5c292ed0af2ae)
+---
+ man/gssproxy.conf.5.xml | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/man/gssproxy.conf.5.xml b/man/gssproxy.conf.5.xml
+index 53cae3d..c8dd504 100644
+--- a/man/gssproxy.conf.5.xml
++++ b/man/gssproxy.conf.5.xml
+@@ -37,7 +37,10 @@
+             of the form "##-foo.conf" (that is, start with two numbers
+             followed by a dash, and end in ".conf").  Files not conforming to
+             this will be ignored unless specifically requested through command
+-            line parameters.
++            line parameters.  Within a single file, any duplicate values or
++            sections will be merged.  Across multiple files, duplicates will
++            generate a warning, and the first value encountered will take
++            precedence (i.e., there is no merging).
+         </para>
+     </refsect1>
+ 

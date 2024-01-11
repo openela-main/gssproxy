@@ -1,0 +1,38 @@
+From c824b8ef3b5ec630edb0f8be78b64b2431c4482f Mon Sep 17 00:00:00 2001
+From: Robbie Harwood <rharwood@redhat.com>
+Date: Thu, 30 Jul 2020 16:43:30 -0400
+Subject: [PATCH] Initialize our epoll_event structures
+
+Fixes a valgrind error for the other fields of epoll_event.
+
+Signed-off-by: Robbie Harwood <rharwood@redhat.com>
+(cherry picked from commit 48bfadc538bca3b9ca478c711af75245163d0b67)
+(cherry picked from commit 35579d9de1d3f295fb4548c73fc6a729d04128c6)
+---
+ src/client/gpm_common.c | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/src/client/gpm_common.c b/src/client/gpm_common.c
+index 808f350..d932ba2 100644
+--- a/src/client/gpm_common.c
++++ b/src/client/gpm_common.c
+@@ -195,6 +195,8 @@ static int gpm_epoll_setup(struct gpm_ctx *gpmctx)
+     struct epoll_event ev;
+     int ret;
+ 
++    memset(&ev, 0, sizeof(ev));
++
+     if (gpmctx->epollfd >= 0) {
+         gpm_epoll_close(gpmctx);
+     }
+@@ -276,6 +278,10 @@ static int gpm_epoll_wait(struct gpm_ctx *gpmctx, uint32_t event_flags)
+     struct epoll_event events[2];
+     uint64_t timer_read;
+ 
++    memset(&ev, 0, sizeof(ev));
++    memset(&events[0], 0, sizeof(events[0]));
++    memset(&events[1], 0, sizeof(events[1]));
++
+     if (gpmctx->epollfd < 0) {
+         ret = gpm_epoll_setup(gpmctx);
+         if (ret)
