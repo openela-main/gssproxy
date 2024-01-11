@@ -1,7 +1,7 @@
 Name:		gssproxy
 
 Version:	0.8.4
-Release:	5%{?dist}
+Release:	6%{?dist}
 Summary:	GSSAPI Proxy
 
 License:	MIT
@@ -111,6 +111,10 @@ install -m644 %{SOURCE1} $RPM_BUILD_ROOT/%{_sysconfdir}/rwtab.d/gssproxy
 %systemd_postun_with_restart gssproxy.service
 
 %changelog
+* Wed Apr 05 2023 Julien Rische <jrische@redhat.com> - 0.8.4-6
+- Use openldap-servers from EPEL repo for testing
+- Resolves: rhbz#2187634
+
 * Mon Apr 03 2023 Julien Rische <jrische@redhat.com> - 0.8.4-5
 - Add an option for minimum lifetime
 - Resolves: rhbz#2184333
